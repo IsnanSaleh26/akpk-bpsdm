@@ -24,6 +24,13 @@ def stepper(cur: int):
     st.markdown(f'<div class="stepper">{html}</div>', unsafe_allow_html=True)
 
 
+def pbar(done: int, total: int) -> str:
+    pct = int(done / total * 100) if total else 0
+    cls = "pbar full" if total and done == total else "pbar"
+    return (f'<div class="{cls}"><div class="pt"><span style="color:inherit"><b>{done} dari {total}</b> pertanyaan terjawab</span><span>{pct}%</span></div>'
+            f'<div class="track"><i style="width:{pct}%"></i></div></div>')
+
+
 # ------------------------------------------------------------------ langkah 1
 def step_identitas():
     P = S.get("profil", {})
@@ -55,7 +62,7 @@ def step_identitas():
             np_, ns = (it.tipe == "Pelatihan").sum(), (it.tipe != "Pelatihan").sum()
             wj = (it.status == "Wajib").sum()
             st.markdown(f'<div class="jab-card"><div class="n">{esc(jab)}</div><div class="i">{esc(row.info_jabatan)}</div>'
-                        f'<div class="i" style="margin-top:8px">{np_} pelatihan dan {ns} sertifikasi/asesmen akan ditanyakan, {wj} di antaranya wajib.</div></div>',
+                        f'<span class="chip">{np_} pelatihan</span><span class="chip">{ns} sertifikasi / asesmen</span><span class="chip w">{wj} wajib</span></div>',
                         unsafe_allow_html=True)
 
     if st.button("Lanjut ke pemenuhan kompetensi", type="primary", width="stretch"):
@@ -104,7 +111,7 @@ def step_pemenuhan():
         st.info(f"NIP ini sudah pernah mengisi pada {S['sudah_pernah'][:16]}. Jawaban baru akan menggantikan jawaban sebelumnya dalam analisis.")
 
     st.markdown('<div class="sec">Pelatihan dan sertifikasi yang direkomendasikan<small>Pilih Sudah bila pernah mengikuti dan lulus, selain itu pilih Belum</small></div>', unsafe_allow_html=True)
-    prog = st.empty()
+    prog = st.container(key="progbar")
     q1, q2, _ = st.columns([1.2, 1.2, 1.6])
     kodes = it.kode_item.tolist()
     q1.button("Tandai semua Belum", on_click=_mark_all, args=("Belum", kodes), width="stretch")
@@ -115,14 +122,14 @@ def step_pemenuhan():
         if sub.empty: continue
         st.markdown(f'<div class="sec">{label}</div>', unsafe_allow_html=True)
         for _, r in sub.iterrows():
-            with st.container(border=True):
+            with st.container(border=True, key=f"item_{str(r.status).replace(' ', '')}_{r.kode_item}"):
                 c1, c2 = st.columns([3.2, 1.3], vertical_alignment="center")
                 c1.markdown(f'<div class="item-t">{esc(r.pelatihan_sertifikasi)}</div>{badge(r.status)}<span class="badge b-jenis">{esc(r.jenis)}</span>'
                             f'<div class="item-m">Penyelenggara: {esc(r.penyelenggara)}<br>Dasar: {esc(r.dasar)}</div>', unsafe_allow_html=True)
                 c2.segmented_control("Pemenuhan", ["Sudah", "Belum"], key=f"ans_{r.kode_item}", label_visibility="collapsed", width="stretch")
 
     done = sum(1 for k in kodes if S.get(f"ans_{k}"))
-    prog.progress(done / len(kodes), text=f"{done} dari {len(kodes)} pertanyaan terjawab")
+    prog.markdown(pbar(done, len(kodes)), unsafe_allow_html=True)
 
     st.markdown("&nbsp;")
     ok = st.checkbox("Saya menyatakan bahwa data yang saya isi benar dan dapat dipertanggungjawabkan.")
@@ -166,16 +173,17 @@ def step_selesai():
     st.markdown(f'<div class="done-card"><div class="ck">✓</div><h2>Terima kasih, {esc(P["nama"])}</h2>'
                 f'<div style="color:#5B6B84">Jawaban Anda sudah tersimpan dengan nomor <b>{esc(S["hasil"]["sid"])}</b>.</div></div>', unsafe_allow_html=True)
     st.markdown("&nbsp;")
+    wj_ok = int((wj.pemenuhan == "Sudah").sum())
     c1, c2 = st.columns(2)
-    c1.metric("Pelatihan/sertifikasi terpenuhi", f"{sudah} dari {len(df)}")
-    c2.metric("Kewajiban (Wajib) terpenuhi", f"{(wj.pemenuhan == 'Sudah').sum()} dari {len(wj)}")
+    c1.markdown(f'<div class="kpi a"><div class="v">{sudah}<small> / {len(df)}</small></div><div class="l">Pelatihan dan sertifikasi terpenuhi</div></div>', unsafe_allow_html=True)
+    c2.markdown(f'<div class="kpi b"><div class="v">{wj_ok}<small> / {len(wj)}</small></div><div class="l">Kewajiban (Wajib) terpenuhi</div></div>', unsafe_allow_html=True)
     gap = df[df.pemenuhan == "Belum"].copy()
     gap["o"] = gap.status.map({s: i for i, s in enumerate(STATUS_ORDER)})
     gap = gap.sort_values(["o", "tipe"])
     if len(gap):
         st.markdown('<div class="sec">Kebutuhan pengembangan Anda<small>Diurutkan dari yang paling wajib</small></div>', unsafe_allow_html=True)
         for _, r in gap.iterrows():
-            st.markdown(f'<div class="jab-card" style="border-left-color:#E4730C"><div class="n" style="font-size:.95rem">{esc(r.pelatihan_sertifikasi)}</div>'
+            st.markdown(f'<div class="jab-card s-{esc(r.status)}"><div class="n" style="font-size:.95rem">{esc(r.pelatihan_sertifikasi)}</div>'
                         f'<div style="margin-top:6px">{badge(r.status)}<span class="badge b-jenis">{esc(r.jenis)}</span></div></div>', unsafe_allow_html=True)
     else:
         st.success("Semua rekomendasi untuk jabatan Anda sudah terpenuhi.")
@@ -187,8 +195,10 @@ def step_selesai():
 
 # ------------------------------------------------------------------ halaman
 hero("Analisis Kebutuhan Pengembangan Kompetensi",
-     "Isi data Anda dan tandai pelatihan serta sertifikasi yang sudah dimiliki. Hasilnya dipakai untuk menyusun rencana pengembangan kompetensi pegawai. Pengisian sekitar 5 menit.")
+     "Isi data Anda dan tandai pelatihan serta sertifikasi yang sudah dimiliki. Hasilnya dipakai untuk menyusun rencana pengembangan kompetensi pegawai. Pengisian sekitar 5 menit.",
+     compact=S["step"] > 1)
 stepper(S["step"])
 {1: step_identitas, 2: step_pemenuhan, 3: step_selesai}[S["step"]]()
 if storage.mode() == "lokal":
     st.caption("Mode uji coba: jawaban disimpan di berkas lokal (data/responses.csv), belum terhubung ke Google Sheets.")
+st.markdown('<div class="foot">BPSDM Provinsi Sulawesi Tenggara</div>', unsafe_allow_html=True)
