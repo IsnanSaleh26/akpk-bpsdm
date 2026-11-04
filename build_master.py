@@ -35,8 +35,8 @@ for no, (kat, nama, info, plt, ser) in enumerate(J, 1):
 
 jab, items = pd.DataFrame(jab_rows), pd.DataFrame(item_rows)
 with pd.ExcelWriter("data/master_akpk.xlsx", engine="openpyxl") as xw:
-    jab.to_excel(xw, "Jabatan", index=False)
-    items.to_excel(xw, "Master", index=False)
+    jab.to_excel(xw, sheet_name="Jabatan", index=False)
+    items.to_excel(xw, sheet_name="Master", index=False)
     for ws in xw.book.worksheets:
         for col in ws.columns:
             ws.column_dimensions[col[0].column_letter].width = min(60, max(12, max(len(str(c.value or "")) for c in col[:40]) + 2))
