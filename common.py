@@ -38,12 +38,14 @@ def esc(x) -> str:
     return html.escape(str(x))
 
 
-FONT = "@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');"
+# Huruf memakai font bawaan perangkat (Roboto di Android, SF di iPhone, Segoe UI di Windows).
+# Font Google sengaja tidak dipakai: di sinyal lemah, pemuatan font eksternal menahan tampilan halaman.
+FONT_STACK = "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
 
-BASE_CSS = FONT + f"""
+BASE_CSS = f"""
 /* ================= dasar ================= */
 html, :root, .stApp {{ color-scheme: light only; }}
-html, body, [class*="css"], .stApp, button, input, textarea, select {{ font-family: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif !important; }}
+html, body, [class*="css"], .stApp, button, input, textarea, select {{ font-family: {FONT_STACK} !important; }}
 .stApp {{ background: {BG}; color: {INK}; }}
 #MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDecoration"] {{ display: none !important; }}
 header[data-testid="stHeader"] {{ background: transparent; }}
@@ -65,11 +67,6 @@ h1, h2, h3 {{ color: {INK}; letter-spacing: -0.01em; }}
 .hero.compact h1 {{ font-size: 1.12rem; margin: 0; }}
 .hero.compact p {{ display: none; }}
 .hero.compact svg {{ width: 150px; height: 150px; right: -30px; top: -45px; }}
-@media (max-width: 640px) {{
-  .hero {{ padding: 22px 20px; }} .hero h1 {{ font-size: 1.35rem; }}
-  .hero svg {{ width: 200px; height: 200px; right: -60px; top: -60px; }}
-  .hero.compact {{ padding: 14px 18px; }} .hero.compact h1 {{ font-size: 1.02rem; }}
-}}
 
 /* ================= stepper ================= */
 .stepper {{ display: flex; gap: 8px; margin: 4px 0 16px 0; }}
@@ -79,7 +76,6 @@ h1, h2, h3 {{ color: {INK}; letter-spacing: -0.01em; }}
 .stepper .st.on b {{ background: {NAVY}; color: #fff; }}
 .stepper .st.done b {{ background: {GREEN}; color: #fff; }}
 .stepper .st.done {{ color: {INK}; }}
-@media (max-width: 640px) {{ .stepper .st span {{ display: none; }} .stepper .st.on span {{ display: inline; }} .stepper .st {{ padding: 8px 10px; }} }}
 
 /* ================= judul bagian ================= */
 .sec {{ font-size: 1.05rem; font-weight: 800; color: {INK}; margin: 24px 0 10px 0; }}
@@ -112,11 +108,15 @@ h1, h2, h3 {{ color: {INK}; letter-spacing: -0.01em; }}
 .stApp [data-testid="stButtonGroup"] button[aria-checked="true"], .stApp [data-testid="stButtonGroup"] button[aria-pressed="true"] {{
   background: {NAVY}; color: #fff; border-color: {NAVY}; }}
 
-/* ================= butir pelatihan: strip warna menurut status ================= */
+/* ================= butir pelatihan ================= */
 .stApp [class*="st-key-item_Wajib_"] {{ border-left: 5px solid {NAVY} !important; border-radius: 14px; }}
 .stApp [class*="st-key-item_Dianjurkan_"] {{ border-left: 5px solid {BLUE} !important; border-radius: 14px; }}
 .stApp [class*="st-key-item_Bersyarat_"] {{ border-left: 5px solid {AMBER} !important; border-radius: 14px; }}
 .stApp [class*="st-key-item_Pelengkap_"] {{ border-left: 5px solid {GREY} !important; border-radius: 14px; }}
+/* kartu yang sudah dijawab diberi latar hijau tipis (kartu belum dijawab tetap putih) */
+.stApp div[data-testid="stVerticalBlockBorderWrapper"]:has(button[data-testid="stBaseButton-segmented_controlActive"]),
+.stApp div[data-testid="stVerticalBlockBorderWrapper"]:has(button[aria-checked="true"]),
+.stApp [class*="st-key-item_"]:has(button[data-testid="stBaseButton-segmented_controlActive"]) {{ background: #F2F9F5 !important; }}
 .item-t {{ font-weight: 600; font-size: .96rem; line-height: 1.45; color: {INK}; margin-bottom: 8px; }}
 .item-m {{ font-size: .8rem; color: {MUTED}; margin-top: 8px; line-height: 1.5; }}
 .badge {{ display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .74rem; font-weight: 700; margin-right: 6px; }}
@@ -125,6 +125,13 @@ h1, h2, h3 {{ color: {INK}; letter-spacing: -0.01em; }}
 .b-Bersyarat {{ background: #FFF0D6; color: #8A5200; }}
 .b-Pelengkap {{ background: #ECEFF4; color: #4B5870; }}
 .b-jenis {{ border: 1px solid {LINE}; color: {MUTED}; background: #fff; }}
+/* rincian penyelenggara dan dasar hukum dilipat agar daftar tidak terlalu panjang di HP */
+details.more {{ margin-top: 6px; }}
+details.more summary {{ cursor: pointer; display: inline-block; font-size: .8rem; font-weight: 700; color: {BLUE}; padding: 6px 0; list-style: none; }}
+details.more summary::-webkit-details-marker {{ display: none; }}
+details.more summary::before {{ content: "+ "; }}
+details.more[open] summary::before {{ content: "\\2212  "; }}
+details.more .item-m {{ margin-top: 2px; }}
 
 /* ================= bilah kemajuan (menempel di atas saat menggulir) ================= */
 .stApp [class*="st-key-progbar"] {{ position: sticky; top: 0; z-index: 60; background: {BG}; padding: 8px 0 6px 0; }}
@@ -132,11 +139,11 @@ h1, h2, h3 {{ color: {INK}; letter-spacing: -0.01em; }}
 .pbar {{ background: #fff; border: 1px solid {LINE}; border-radius: 12px; padding: 10px 14px; box-shadow: 0 4px 12px rgba(15,28,51,.06); }}
 .pbar .pt {{ display: flex; justify-content: space-between; align-items: baseline; font-size: .84rem; color: {MUTED}; font-weight: 600; margin-bottom: 7px; }}
 .pbar .pt b {{ color: {INK}; font-weight: 800; }}
-.pbar .pt span {{ color: {NAVY}; font-weight: 800; }}
+.pbar .pt span.pct {{ color: {NAVY}; font-weight: 800; }}
 .pbar .track {{ height: 8px; border-radius: 99px; background: {LINE}; overflow: hidden; }}
 .pbar .track i {{ display: block; height: 100%; background: {BLUE}; border-radius: 99px; transition: width .25s ease; }}
 .pbar.full .track i {{ background: {GREEN}; }}
-.pbar.full .pt span {{ color: {GREEN}; }}
+.pbar.full .pt span.pct {{ color: {GREEN}; }}
 
 /* ================= kartu jabatan, chip, hasil ================= */
 .jab-card {{ background: #fff; border: 1px solid {LINE}; border-left: 5px solid {NAVY}; border-radius: 12px; padding: 14px 18px; margin: 8px 0 4px 0; }}
@@ -146,6 +153,7 @@ h1, h2, h3 {{ color: {INK}; letter-spacing: -0.01em; }}
 .jab-card.s-Bersyarat {{ border-left-color: {AMBER}; }} .jab-card.s-Pelengkap {{ border-left-color: {GREY}; }}
 .chip {{ display: inline-block; padding: 3px 10px; border-radius: 8px; background: #EEF3FA; color: {NAVY}; font-size: .78rem; font-weight: 700; margin: 10px 6px 0 0; }}
 .chip.w {{ background: {NAVY}; color: #fff; }}
+.note {{ background: #EEF3FA; border: 1px solid #D3DFEF; border-radius: 12px; padding: 10px 14px; color: {NAVY}; font-size: .84rem; line-height: 1.5; margin: 8px 0 4px 0; }}
 
 .kpi {{ background: #fff; border: 1px solid {LINE}; border-radius: 14px; padding: 16px 18px; height: 100%; }}
 .kpi .v {{ font-size: 2rem; font-weight: 800; color: {INK}; line-height: 1.1; letter-spacing: -0.02em; }}
@@ -165,11 +173,19 @@ h1, h2, h3 {{ color: {INK}; letter-spacing: -0.01em; }}
 /* ================= layar kecil ================= */
 @media (max-width: 640px) {{
   .block-container {{ padding-left: 1rem; padding-right: 1rem; }}
+  .hero {{ padding: 20px 18px; }} .hero h1 {{ font-size: 1.3rem; }}
+  .hero svg {{ width: 190px; height: 190px; right: -60px; top: -60px; }}
+  .hero.compact {{ padding: 14px 18px; }} .hero.compact h1 {{ font-size: 1.02rem; }}
+  .stepper .st span {{ display: none; }} .stepper .st.on span {{ display: inline; }} .stepper .st {{ padding: 8px 10px; }}
   .stApp .stButton > button, .stApp .stDownloadButton > button {{ min-height: 50px; width: 100%; }}
   .stApp [data-testid="stButtonGroup"] button {{ min-height: 50px; }}
   .item-t {{ font-size: .93rem; }}
   .kpi .v {{ font-size: 1.7rem; }}
+  .done-card {{ padding: 22px 16px; }}
+  /* iPhone memperbesar layar otomatis bila huruf isian di bawah 16px */
+  .stApp input, .stApp textarea, .stApp [data-baseweb="select"] input {{ font-size: 16px !important; }}
 }}
+@media (prefers-reduced-motion: reduce) {{ .pbar .track i {{ transition: none; }} }}
 """
 
 RING = """<svg viewBox="0 0 300 300" aria-hidden="true" fill="none" stroke="#fff">
