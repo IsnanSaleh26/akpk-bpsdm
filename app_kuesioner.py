@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """Aplikasi 1 - Kuesioner AKPK untuk pegawai.  Jalankan: streamlit run app_kuesioner.py"""
+import logging
 import uuid
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 
@@ -10,11 +12,48 @@ st.set_page_config(page_title="Kuesioner AKPK - BPSDM Sultra", page_icon="📋",
 import storage
 from common import (KATEGORI, UNIT_KERJA, GOL_PNS, GOL_PPPK, STATUS_ORDER, inject_css, hero, badge, esc, load_master)
 
+log = logging.getLogger("akpk")
+WITA = ZoneInfo("Asia/Makassar")      # server Streamlit Cloud memakai UTC; catat waktu setempat
+
+
+def now() -> datetime:
+    return datetime.now(WITA)
+
+
 inject_css()
 jab_df, items_df = load_master()
 S = st.session_state
 S.setdefault("step", 1)
 STATUS_PEG = ["PNS", "CPNS", "PPPK", "PPPK Paruh Waktu"]
+
+
+# ------------------------------------------------------------------ pemulihan saat sinyal putus
+# Jawaban yang sedang diisi disalin ke alamat halaman (kode jabatan + deretan S/B, tanpa nama atau NIP).
+# Jika koneksi terputus atau halaman termuat ulang, jawaban dipulihkan dari alamat itu.
+def encode_ans(kodes) -> str:
+    return "".join({"Sudah": "S", "Belum": "B"}.get(S.get(f"ans_{k}"), "-") for k in kodes)
+
+
+def decode_ans(code: str, kodes) -> dict:
+    peta = {"S": "Sudah", "B": "Belum"}
+    return {k: peta[c] for k, c in zip(kodes, code) if c in peta}
+
+
+def _try_restore():
+    if "restored" in S:
+        return
+    S["restored"] = True
+    qp = st.query_params
+    j, a = qp.get("j"), qp.get("a")
+    if j and a and j in set(jab_df.kode_jabatan):
+        kodes = items_df[items_df.kode_jabatan == j].kode_item.tolist()
+        jawaban = decode_ans(a, kodes)
+        if jawaban:
+            S["jawaban"] = jawaban
+            S["restore_j"] = j
+
+
+_try_restore()
 
 
 def stepper(cur: int):
@@ -27,13 +66,19 @@ def stepper(cur: int):
 def pbar(done: int, total: int) -> str:
     pct = int(done / total * 100) if total else 0
     cls = "pbar full" if total and done == total else "pbar"
-    return (f'<div class="{cls}"><div class="pt"><span style="color:inherit"><b>{done} dari {total}</b> pertanyaan terjawab</span><span>{pct}%</span></div>'
+    return (f'<div class="{cls}"><div class="pt"><span><b>{done} dari {total}</b> pertanyaan terjawab</span><span class="pct">{pct}%</span></div>'
             f'<div class="track"><i style="width:{pct}%"></i></div></div>')
 
 
 # ------------------------------------------------------------------ langkah 1
 def step_identitas():
     P = S.get("profil", {})
+    if not P and S.get("restore_j"):
+        r0 = jab_df[jab_df.kode_jabatan == S["restore_j"]]
+        if len(r0):
+            P = dict(kategori=r0.iloc[0].kategori, jabatan=r0.iloc[0].jabatan)
+            st.markdown('<div class="note">Jawaban Anda sebelumnya berhasil dipulihkan. Isi ulang identitas di bawah, lalu lanjut; jawaban akan muncul kembali.</div>',
+                        unsafe_allow_html=True)
     st.markdown('<div class="sec">Identitas pegawai</div>', unsafe_allow_html=True)
     with st.container(border=True):
         c1, c2 = st.columns(2)
@@ -77,7 +122,8 @@ def step_identitas():
             return
         S["profil"] = dict(nama=nama.strip(), nip=nip, status_kepegawaian=status_peg, pangkat_golongan=gol, unit_kerja=unit,
                            kategori=kat, jabatan=jab, kode_jabatan=row.kode_jabatan, info_jabatan=row.info_jabatan)
-        prev = storage.nip_exists(nip)
+        with st.spinner("Memeriksa data..."):
+            prev = storage.nip_exists(nip)
         S["sudah_pernah"] = str(prev) if prev is not None else None
         S["step"] = 2
         st.rerun()
@@ -90,6 +136,7 @@ def _save_answers():
 
 def _back():
     _save_answers()
+    S.pop("pending", None)
     S["step"] = 1
 
 
@@ -120,16 +167,23 @@ def step_pemenuhan():
     for label, tipe_filter in (("A. Pelatihan", it.tipe == "Pelatihan"), ("B. Sertifikasi, uji kompetensi, dan asesmen", it.tipe != "Pelatihan")):
         sub = it[tipe_filter]
         if sub.empty: continue
-        st.markdown(f'<div class="sec">{label}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="sec">{label}<small>{len(sub)} pertanyaan</small></div>', unsafe_allow_html=True)
         for _, r in sub.iterrows():
             with st.container(border=True, key=f"item_{str(r.status).replace(' ', '')}_{r.kode_item}"):
                 c1, c2 = st.columns([3.2, 1.3], vertical_alignment="center")
                 c1.markdown(f'<div class="item-t">{esc(r.pelatihan_sertifikasi)}</div>{badge(r.status)}<span class="badge b-jenis">{esc(r.jenis)}</span>'
-                            f'<div class="item-m">Penyelenggara: {esc(r.penyelenggara)}<br>Dasar: {esc(r.dasar)}</div>', unsafe_allow_html=True)
+                            f'<details class="more"><summary>Rincian</summary><div class="item-m">Penyelenggara: {esc(r.penyelenggara)}<br>Dasar: {esc(r.dasar)}</div></details>',
+                            unsafe_allow_html=True)
                 c2.segmented_control("Pemenuhan", ["Sudah", "Belum"], key=f"ans_{r.kode_item}", label_visibility="collapsed", width="stretch")
 
     done = sum(1 for k in kodes if S.get(f"ans_{k}"))
     prog.markdown(pbar(done, len(kodes)), unsafe_allow_html=True)
+
+    # salin jawaban ke alamat halaman supaya bisa dipulihkan bila sinyal putus
+    kode_now = encode_ans(kodes)
+    if st.query_params.get("a") != kode_now or st.query_params.get("j") != P["kode_jabatan"]:
+        st.query_params["j"] = P["kode_jabatan"]
+        st.query_params["a"] = kode_now
 
     st.markdown("&nbsp;")
     ok = st.checkbox("Saya menyatakan bahwa data yang saya isi benar dan dapat dipertanggungjawabkan.")
@@ -137,25 +191,38 @@ def step_pemenuhan():
     b1.button("Kembali", on_click=_back, width="stretch")
     if b2.button("Kirim jawaban", type="primary", width="stretch"):
         if done < len(kodes):
-            st.error(f"Masih ada {len(kodes) - done} pertanyaan yang belum dijawab. Lengkapi semuanya sebelum mengirim.")
+            miss = [r.pelatihan_sertifikasi for _, r in it.iterrows() if not S.get(f"ans_{r.kode_item}")]
+            contoh = "; ".join(miss[:3]) + (" ..." if len(miss) > 3 else "")
+            st.error(f"Masih ada {len(miss)} pertanyaan yang belum dijawab, antara lain: {contoh}")
             return
         if not ok:
             st.error("Centang pernyataan di atas sebelum mengirim.")
             return
-        sid = f"AKPK-{datetime.now():%y%m%d}-{uuid.uuid4().hex[:6].upper()}"
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        rows = [dict(submission_id=sid, timestamp=ts, nip=P["nip"], nama=P["nama"], pangkat_golongan=P["pangkat_golongan"],
+        # nomor pengisian dibuat sekali dan dipakai ulang bila kirim diulang, supaya tidak tercatat dobel
+        if "pending" not in S:
+            S["pending"] = dict(sid=f"AKPK-{now():%y%m%d}-{uuid.uuid4().hex[:6].upper()}", ts=now().strftime("%Y-%m-%d %H:%M:%S"), tried=False)
+        pend = S["pending"]
+        rows = [dict(submission_id=pend["sid"], timestamp=pend["ts"], nip=P["nip"], nama=P["nama"], pangkat_golongan=P["pangkat_golongan"],
                      status_kepegawaian=P["status_kepegawaian"], kode_jabatan=P["kode_jabatan"], jabatan=P["jabatan"], kategori=P["kategori"],
                      unit_kerja=P["unit_kerja"], kode_item=r.kode_item, tipe=r.tipe, pelatihan_sertifikasi=r.pelatihan_sertifikasi, jenis=r.jenis,
                      status=r.status, penyelenggara=r.penyelenggara, penyelenggara_kunci=r.penyelenggara_kunci, pemenuhan=S[f"ans_{r.kode_item}"])
                 for _, r in it.iterrows()]
         try:
-            with st.spinner("Menyimpan jawaban..."):
-                storage.append_rows(rows)
+            with st.spinner("Menyimpan jawaban. Jangan tutup halaman ini..."):
+                if pend["tried"] and storage.already_saved(pend["sid"]):
+                    pass                                  # kiriman sebelumnya ternyata sudah masuk
+                else:
+                    pend["tried"] = True
+                    storage.append_rows(rows)
         except Exception as e:
-            st.error(f"Jawaban belum tersimpan: {e}. Coba kirim lagi; jawaban Anda di layar tidak hilang.")
+            log.exception("Gagal menyimpan jawaban %s", pend["sid"])
+            st.error("Jawaban belum tersimpan, kemungkinan karena sinyal terputus. Jawaban Anda di layar tidak hilang. "
+                     "Pastikan sinyal stabil, lalu tekan Kirim jawaban sekali lagi.")
+            st.caption(f"Kode kesalahan: {type(e).__name__}")
             return
-        S["hasil"] = dict(sid=sid, rows=pd.DataFrame(rows))
+        S["hasil"] = dict(sid=pend["sid"], rows=pd.DataFrame(rows))
+        S.pop("pending", None)
+        st.query_params.clear()
         S["step"] = 3
         st.rerun()
 
@@ -164,6 +231,7 @@ def step_pemenuhan():
 def _reset():
     for k in list(S.keys()):
         del S[k]
+    st.query_params.clear()
 
 
 def step_selesai():
